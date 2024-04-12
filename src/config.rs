@@ -245,8 +245,18 @@ mod tests {
     use super::*;
     use ColorChoice::*;
 
+    /// helper struct to implement `Write + 'static` while keeping
+    /// view access to an underlying buffer
+    ///
+    /// Uses [`Mutex::try_lock`] so no calls should block even though it is a mutex
     #[derive(Debug, Clone, Default)]
     struct SharedBuffer(Rc<Mutex<Cursor<Vec<u8>>>>);
+
+    impl SharedBuffer {
+        fn new() -> Self {
+            Default::default()
+        }
+    }
 
     impl Write for SharedBuffer {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -256,6 +266,29 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             self.0.try_lock().expect("mutex locked").flush()
         }
+    }
+
+    /// asserts that there must be color/no color, based on the truth of `COLOR`,
+    /// in the given stream, given a copy of the buffer it links to
+    fn expect_color<const COLOR: bool>(mut stream: impl Write, buf: SharedBuffer) {
+        let expected: &[u8] = if COLOR {
+            b"\x1b[1mcolor!\x1b[0m"
+        } else {
+            b"color!"
+        };
+
+        write!(stream, "{}color!{}", Style::new().bold(), Reset).expect("error writing");
+        let mut grd = buf.0.try_lock().expect("mutex locked");
+
+        grd.rewind().expect("error rewinding");
+        let mut data = Vec::new();
+        grd.read_to_end(&mut data).expect("error reading");
+
+        assert_eq!(
+            data, expected,
+            "expected color: {}; found color: {}",
+            COLOR, !COLOR
+        );
     }
 
     #[test]
@@ -300,26 +333,63 @@ mod tests {
 
     #[test]
     fn test_set_color_choice() {
-        for choice in [AlwaysAnsi, Auto, Never] {
+        fn assert_set_color<const COLOR: bool>(choice: ColorChoice) {
             let mut config = GlobalConfig::new();
-            let buffer = SharedBuffer::default();
-            config.set_stdout(Box::new(buffer.clone()));
+
+            let out = SharedBuffer::new();
+            let err = SharedBuffer::new();
+            config.set_stdout(Box::new(out.clone()));
+            config.set_stderr(Box::new(err.clone()));
+
             config.set_color_choice(choice);
 
-            write!(
-                config.stdout(),
-                "{}are there colors?{}",
-                Style::new().bold(),
-                Reset
-            )
-            .expect("error writing");
-
-            let mut data = Vec::new();
-            let mut grd = buffer.0.try_lock().expect("mutex locked");
-            grd.rewind().expect("error rewinding");
-            grd.read_to_end(&mut data).expect("error reading");
-
-            assert_eq!(data, b"");
+            expect_color::<COLOR>(config.stdout(), out);
+            expect_color::<COLOR>(config.stderr(), err);
         }
+
+        assert_set_color::<true>(Always);
+        assert_set_color::<true>(AlwaysAnsi);
+        // a SharedBuffer is not a tty, so it should default to no colors.
+        // TODO: is this test sound?
+        assert_set_color::<false>(Auto);
+        assert_set_color::<false>(Never);
+    }
+
+    #[test]
+    fn test_set_out_color_choice() {
+        fn assert_set_out_color<const COLOR: bool>(choice: ColorChoice) {
+            let mut config = GlobalConfig::new();
+
+            let out = SharedBuffer::new();
+            config.set_stdout(Box::new(out.clone()));
+
+            config.set_color_choice(choice);
+
+            expect_color::<COLOR>(config.stdout(), out);
+        }
+
+        assert_set_out_color::<true>(Always);
+        assert_set_out_color::<true>(AlwaysAnsi);
+        assert_set_out_color::<false>(Auto);
+        assert_set_out_color::<false>(Never);
+    }
+
+    #[test]
+    fn test_set_err_color_choice() {
+        fn assert_set_err_color<const COLOR: bool>(choice: ColorChoice) {
+            let mut config = GlobalConfig::new();
+
+            let err = SharedBuffer::new();
+            config.set_stderr(Box::new(err.clone()));
+
+            config.set_color_choice(choice);
+
+            expect_color::<COLOR>(config.stderr(), err);
+        }
+
+        assert_set_err_color::<true>(Always);
+        assert_set_err_color::<true>(AlwaysAnsi);
+        assert_set_err_color::<false>(Auto);
+        assert_set_err_color::<false>(Never);
     }
 }
