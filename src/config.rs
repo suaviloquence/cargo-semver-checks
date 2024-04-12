@@ -176,10 +176,10 @@ impl GlobalConfig {
         self.stderr = AutoStream::new(err, ColorChoice::global());
     }
 
-    /// Sets the stderr output stream
+    /// Sets the stdout output stream
     ///
     /// Defaults to the global color choice setting in [`ColorChoice::global`].
-    /// Call [`GlobalConfig::set_err_color_choice`] to customize the color choice
+    /// Call [`GlobalConfig::set_out_color_choice`] to customize the color choice
     pub fn set_stdout(&mut self, out: Box<dyn Write + 'static>) {
         self.stdout = AutoStream::new(out, ColorChoice::global());
     }
@@ -236,7 +236,27 @@ impl GlobalConfig {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Cursor, Read, Seek},
+        rc::Rc,
+        sync::Mutex,
+    };
+
     use super::*;
+    use ColorChoice::*;
+
+    #[derive(Debug, Clone, Default)]
+    struct SharedBuffer(Rc<Mutex<Cursor<Vec<u8>>>>);
+
+    impl Write for SharedBuffer {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.try_lock().expect("mutex locked").write(buf)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.0.try_lock().expect("mutex locked").flush()
+        }
+    }
 
     #[test]
     fn test_log_level_info() {
@@ -276,5 +296,30 @@ mod tests {
         assert!(!config.is_info());
         assert!(!config.is_verbose());
         assert!(!config.is_extra_verbose());
+    }
+
+    #[test]
+    fn test_set_color_choice() {
+        for choice in [AlwaysAnsi, Auto, Never] {
+            let mut config = GlobalConfig::new();
+            let buffer = SharedBuffer::default();
+            config.set_stdout(Box::new(buffer.clone()));
+            config.set_color_choice(choice);
+
+            write!(
+                config.stdout(),
+                "{}are there colors?{}",
+                Style::new().bold(),
+                Reset
+            )
+            .expect("error writing");
+
+            let mut data = Vec::new();
+            let mut grd = buffer.0.try_lock().expect("mutex locked");
+            grd.rewind().expect("error rewinding");
+            grd.read_to_end(&mut data).expect("error reading");
+
+            assert_eq!(data, b"");
+        }
     }
 }
