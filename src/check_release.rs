@@ -163,6 +163,9 @@ pub(super) fn run_check_release(
     release_type: Option<ReleaseType>,
     #[allow(unused_variables)] overrides: OverrideStack,
 ) -> anyhow::Result<CrateReport> {
+    config.log_extra_verbose(|cfg| {
+        writeln!(cfg.stderr(), "overrides: {overrides:?}").map_err(From::from)
+    })?;
     let current_version = current_crate.crate_version();
     let baseline_version = baseline_crate.crate_version();
 
