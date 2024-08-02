@@ -31,12 +31,10 @@
 //! `cargo-insta`)
 use std::process::Command;
 
-#[allow(unused_imports)] // TODO
 use insta_cmd::assert_cmd_snapshot;
 
 /// Helper function to create a [`Command`] to run `cargo-semver-checks`
 /// for snapshot testing with `assert_cmd_snapshot!`
-#[allow(dead_code)] // TODO
 fn create_command() -> Command {
     let mut cmd = Command::new(insta_cmd::get_cargo_bin("cargo-semver-checks"));
 
@@ -46,4 +44,22 @@ fn create_command() -> Command {
     cmd.env("RUST_BACKTRACE", "0");
 
     cmd
+}
+
+/// [#163](https://github.com/obi1kenobi/cargo-semver-checks/issues/163)
+///
+/// Running `cargo semver-checks --workspace` on a workspace that has library
+/// targets should be an error.
+#[test]
+fn workspace_no_lib_targets_error() {
+    let mut cmd = create_command();
+    cmd.args([
+        "--manifest-path",
+        "test_crates/manifest_tests/no_lib_targets/new",
+        "--baseline-root",
+        "test_crates/manifest_tests/no_lib_targets/old",
+        "--workspace",
+    ]);
+
+    assert_cmd_snapshot!(cmd);
 }
