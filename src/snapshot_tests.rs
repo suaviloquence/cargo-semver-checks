@@ -12,7 +12,7 @@
 //!
 //! If the changes are intended, to update the test, accept the new output
 //! in the `cargo insta review` CLI.  Make sure to commit the
-//! `tests/snapshots/{name}.snap` file in your PR.
+//! `src/snapshots/{name}.snap` file in your PR.
 //!
 //! Alternatively, if you can't use `cargo-insta`, review the changed files
 //! in the `tests/snapshots/ directory by moving `{name}.snap.new` to
@@ -25,25 +25,89 @@
 //! and add arguments (especially `--manifest-path` and `--baseline-root`).
 //! Then, call [`assert_cmd_snapshot!`] with the command.
 //!
-//! Then run `cargo test --test snapshot_tests`.  The new test should fail, as
+//! Then run `cargo test --lib snapshot_tests`.  The new test should fail, as
 //! there is no snapshot to compare to.  Review the output with `cargo insta review`,
 //! and accept it when the captured behavior is correct. (see above if you can't use
 //! `cargo-insta`)
-use std::process::Command;
 
-use insta_cmd::assert_cmd_snapshot;
+use std::{cell::RefCell, fmt, io::Cursor, rc::Rc};
 
-/// Helper function to create a [`Command`] to run `cargo-semver-checks`
-/// for snapshot testing with `assert_cmd_snapshot!`
-fn create_command() -> Command {
-    let mut cmd = Command::new(insta_cmd::get_cargo_bin("cargo-semver-checks"));
+use insta::assert_snapshot;
 
-    cmd.arg("semver-checks");
-    // We don't want backtraces in our snapshot, as those may change the
-    // output but not affect the behavior of the program.
-    cmd.env("RUST_BACKTRACE", "0");
+use crate::{Check, GlobalConfig, PackageSelection, Rustdoc, ScopeSelection};
 
-    cmd
+#[derive(Debug)]
+struct CheckOutput {
+    /// Whether the check succeed; that is, whether `cargo semver-checks` would exit 0.
+    success: bool,
+    /// The captured stdout of the check.
+    stdout: String,
+    /// The captured stderr of the check.
+    stderr: String,
+}
+
+impl fmt::Display for CheckOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "success: {}", self.success)?;
+        writeln!(f, "--- stdout ---\n{}", self.stdout)?;
+        writeln!(f, "--- stderr ---\n{}", self.stderr)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct CheckResult(anyhow::Result<CheckOutput>);
+
+impl fmt::Display for CheckResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "exit code: {}", self.exit_code())?;
+        match &self.0 {
+            Ok(out) => write!(f, "{out}"),
+            Err(err) => writeln!(f, "--- error ---\n{err}"),
+        }
+    }
+}
+
+impl CheckResult {
+    #[must_use]
+    fn new(mut config: GlobalConfig, check: Check) -> Self {
+        /// Hack struct to implement `Write + 'static`
+        /// on a Vec<u8> to read from later.
+        #[derive(Clone, Default)]
+        struct W(Rc<RefCell<Cursor<Vec<u8>>>>);
+
+        impl std::io::Write for W {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.borrow_mut().write(buf)
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.0.borrow_mut().flush()
+            }
+        }
+
+        let stdout = W::default();
+        let stderr = W::default();
+
+        config.set_stdout(Box::new(stdout.clone()));
+        config.set_stderr(Box::new(stderr.clone()));
+
+        let result = check.check_release(&mut config);
+
+        Self(result.map(|x| CheckOutput {
+            success: x.success(),
+            stdout: String::from_utf8_lossy(stdout.0.borrow().get_ref()).into_owned(),
+            stderr: String::from_utf8_lossy(stderr.0.borrow().get_ref()).into_owned(),
+        }))
+    }
+
+    #[inline]
+    fn exit_code(&self) -> i32 {
+        match &self.0 {
+            Ok(out) => out.success as i32,
+            Err(_) => 1,
+        }
+    }
 }
 
 /// [#163](https://github.com/obi1kenobi/cargo-semver-checks/issues/163)
@@ -52,14 +116,16 @@ fn create_command() -> Command {
 /// targets should be an error.
 #[test]
 fn workspace_no_lib_targets_error() {
-    let mut cmd = create_command();
-    cmd.args([
-        "--manifest-path",
+    let mut check = Check::new(Rustdoc::from_root(
         "test_crates/manifest_tests/no_lib_targets/new",
-        "--baseline-root",
-        "test_crates/manifest_tests/no_lib_targets/old",
-        "--workspace",
-    ]);
+    ));
 
-    assert_cmd_snapshot!(cmd);
+    check
+        .set_package_selection(PackageSelection::new(ScopeSelection::Workspace))
+        .set_baseline(Rustdoc::from_root(
+            "test_crates/manifest_tests/no_lib_targets/new",
+        ));
+
+    let out = CheckResult::new(GlobalConfig::new(), check);
+    assert_snapshot!(out);
 }
