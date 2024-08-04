@@ -9,8 +9,10 @@ mod rustdoc_gen;
 mod templating;
 mod util;
 
-#[cfg(test)]
-mod snapshot_tests;
+// #[cfg(test)]
+// pub(crate) mod cli;
+// #[cfg(test)]
+// mod snapshot_tests;
 
 use anyhow::Context;
 use cargo_metadata::PackageId;
@@ -20,6 +22,7 @@ use itertools::Itertools;
 
 use check_release::run_check_release;
 use rustdoc_gen::CrateDataForRustdoc;
+use serde::Serialize;
 use trustfall_rustdoc::{load_rustdoc, VersionedCrate};
 
 use rustdoc_cmd::RustdocCommand;
@@ -36,7 +39,7 @@ pub use query::{
 
 /// Test a release for semver violations.
 #[non_exhaustive]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct Check {
     /// Which packages to analyze.
     scope: Scope,
@@ -54,7 +57,7 @@ pub struct Check {
 /// Affects which lints are executed.
 /// Non-exhaustive in case we want to add "pre-release" as an option in the future.
 #[non_exhaustive]
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ReleaseType {
     Major,
     Minor,
@@ -62,7 +65,7 @@ pub enum ReleaseType {
 }
 
 #[non_exhaustive]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct Rustdoc {
     source: RustdocSource,
 }
@@ -112,7 +115,7 @@ impl Rustdoc {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 enum RustdocSource {
     /// Path to the Rustdoc json file.
     /// Use this option when you have already generated the rustdoc file.
@@ -130,12 +133,12 @@ enum RustdocSource {
 }
 
 /// Which packages to analyze.
-#[derive(Default, Debug, PartialEq, Eq)]
+#[derive(Default, Debug, PartialEq, Eq, Serialize)]
 struct Scope {
     mode: ScopeMode,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 enum ScopeMode {
     /// All packages except the excluded ones.
     DenyList(PackageSelection),
@@ -150,7 +153,7 @@ impl Default for ScopeMode {
 }
 
 #[non_exhaustive]
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PackageSelection {
     selection: ScopeSelection,
     excluded_packages: Vec<String>,
@@ -171,7 +174,7 @@ impl PackageSelection {
 }
 
 #[non_exhaustive]
-#[derive(Default, Debug, PartialEq, Eq, Clone)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Serialize)]
 pub enum ScopeSelection {
     /// All packages in the workspace. Equivalent to `--workspace`.
     Workspace,

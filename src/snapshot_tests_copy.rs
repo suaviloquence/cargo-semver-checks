@@ -35,10 +35,8 @@ use std::{cell::RefCell, fmt, io::Cursor, rc::Rc};
 use clap::Parser;
 use insta::{assert_ron_snapshot, assert_snapshot};
 
-use crate::{
-    cli::{Cargo, SemverChecks},
-    Check, GlobalConfig,
-};
+use crate::cli::{Cargo, SemverChecks};
+use cargo_semver_checks::{Check, GlobalConfig};
 
 #[derive(Debug)]
 struct CheckOutput {
@@ -135,7 +133,7 @@ fn workspace_no_lib_targets_error() {
 
     let check = check_release.into();
 
-    assert_ron_snapshot!("check-stage", &check);
+    assert_ron_snapshot!("check-stage", check);
 
     let out = CheckResult::new(GlobalConfig::new(), check);
     assert_snapshot!(out);
