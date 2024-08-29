@@ -122,6 +122,9 @@ pub struct SemverQuery {
     /// a human-readable description of the specific semver violation that was discovered.
     #[serde(default)]
     pub(crate) per_result_error_template: Option<String>,
+
+    #[serde(default)]
+    pub witness_template: Option<String>,
 }
 
 impl SemverQuery {
@@ -579,6 +582,7 @@ mod tests {
             arguments: BTreeMap::new(),
             error_message: String::new(),
             per_result_error_template: None,
+            witness_template: None,
         }
     }
 
