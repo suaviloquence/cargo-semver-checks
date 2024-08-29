@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Instant};
 use anstyle::{AnsiColor, Color, Reset, Style};
 
 use anyhow::Context;
+use bat::controller::Controller;
 use clap::crate_version;
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -159,6 +160,23 @@ fn print_triggered_lint(
 
             config.log_info(|config| {
                 config.shell_note("the following downstream code would break:")?;
+
+                let bat_cfg = bat::config::Config {
+                    language: Some("rust"),
+                    colored_output: config.err_color_choice(),
+                    ..Default::default()
+                };
+
+                let assets = bat::assets::HighlightingAssets::from_binary();
+
+                let printer = Controller::new(&bat_cfg, &assets);
+
+                let cursor = std::io::Cursor::new(message.as_bytes());
+                let input = bat::input::Input::from_reader(Box::new(cursor));
+
+                let mut message = String::new();
+                printer.run(vec![input], Some(&mut message))?;
+
                 writeln!(config.stderr(), "{message}")?;
 
                 Ok(())
